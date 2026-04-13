@@ -1,7 +1,49 @@
 <!doctype html>
 <html lang="ru">
   <head>
+    <meta charset="UTF-8" /><!doctype html>
+<html lang="ru">
+  <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Штурман маршрута</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="mapFallback" class="map-fallback hidden" role="status" aria-live="polite">
+      Не удалось загрузить карту.
+    </div>
+
+    <main class="screen">
+      <section class="panel">
+        <h1>Построение маршрута</h1>
+
+        <label for="startCoord">Старт</label>
+        <input id="startCoord" class="input" type="text" placeholder="lat,lng" />
+
+        <label for="finishCoord">Финиш</label>
+        <input id="finishCoord" class="input" type="text" placeholder="lat,lng" />
+
+        <button id="buildRouteBtn" class="btn">Построить маршрут</button>
+        <div id="routeStatus" class="status">Введите координаты старта и финиша.</div>
+      </section>
+    </main>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="app.js"></script>
+  </body>
+</html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Штурман маршрута</title>
     <link
