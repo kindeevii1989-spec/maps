@@ -19,7 +19,9 @@ let state = loadState();
 const routeNameInput = document.getElementById('routeName');
 const currentStageCard = document.getElementById('currentStageCard');
 const stageList = document.getElementById('stageList');
-const addStageBtn = document.getElementById('addStageBtn');
+const quickTitle = document.getElementById('quickTitle');
+const quickNote = document.getElementById('quickNote');
+const quickAddBtn = document.getElementById('quickAddBtn');
 const nextBtn = document.getElementById('nextBtn');
 const backBtn = document.getElementById('backBtn');
 const lostBtn = document.getElementById('lostBtn');
@@ -30,6 +32,7 @@ const lostPanel = document.getElementById('lostPanel');
 const manualLocationInput = document.getElementById('manualLocation');
 const saveLocationBtn = document.getElementById('saveLocationBtn');
 const manualAnchorBlock = document.getElementById('manualAnchorBlock');
+const progressText = document.getElementById('progressText');
 
 // Рендерим интерфейс после любого изменения state.
 function render() {
@@ -37,20 +40,25 @@ function render() {
 
   if (state.stages.length === 0) {
     currentStageCard.innerHTML = '<h3>Нет этапов</h3><p>Добавьте первый этап маршрута.</p>';
+    progressText.textContent = 'Этапов пока нет';
   } else {
     const current = state.stages[state.currentIndex];
+    const isLastStage = state.currentIndex === state.stages.length - 1;
     currentStageCard.innerHTML = `
       <h3>Этап ${state.currentIndex + 1}: ${escapeHtml(current.title || 'Без названия')}</h3>
       <p><strong>Заметка:</strong> ${escapeHtml(current.note || '—')}</p>
-      <p><strong>Прогресс:</strong> ${state.currentIndex + 1} / ${state.stages.length}</p>
+      ${isLastStage ? '<p><strong>Вы прибыли</strong></p>' : ''}
     `;
+    progressText.textContent = `Этап ${state.currentIndex + 1} из ${state.stages.length}`;
   }
 
   renderStageList();
   renderManualAnchor();
 
   backBtn.disabled = state.currentIndex <= 0;
-  nextBtn.disabled = state.currentIndex >= state.stages.length - 1 || state.stages.length === 0;
+  const isDisabledNext = state.currentIndex >= state.stages.length - 1 || state.stages.length === 0;
+  nextBtn.disabled = isDisabledNext;
+  nextBtn.textContent = isDisabledNext ? 'Вы прибыли' : 'Следующий этап';
 }
 
 function renderStageList() {
@@ -158,8 +166,13 @@ saveLocationBtn.addEventListener('click', () => {
   lostPanel.classList.add('hidden');
 });
 
-addStageBtn.addEventListener('click', () => {
-  state.stages.push({ title: 'Новый этап', note: '' });
+quickAddBtn.addEventListener('click', () => {
+  const title = quickTitle.value.trim();
+  const note = quickNote.value.trim();
+
+  state.stages.push({ title: title || 'Новый этап', note });
+  quickTitle.value = '';
+  quickNote.value = '';
   clampCurrentIndex();
   saveState();
   render();

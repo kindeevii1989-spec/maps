@@ -20,10 +20,10 @@
 
       <section class="card">
         <h2 class="section-title">Управление</h2>
+        <div id="progressText" class="progress-text"></div>
         <div class="button-grid">
-          <button id="nextBtn" class="btn btn-primary">Проехали</button>
           <button id="backBtn" class="btn">Назад</button>
-          <button id="lostBtn" class="btn btn-warning">Потерялись</button>
+          <button id="lostBtn" class="btn btn-danger">Потерялись</button>
           <button id="saveBtn" class="btn">Сохранить маршрут</button>
           <button id="loadBtn" class="btn">Загрузить маршрут</button>
           <button id="resetBtn" class="btn btn-danger">Сбросить</button>
@@ -40,10 +40,16 @@
 
       <section class="card">
         <h2 class="section-title">Этапы маршрута</h2>
+        <div class="quick-add">
+          <input id="quickTitle" class="input" type="text" placeholder="Название" />
+          <textarea id="quickNote" class="input" rows="2" placeholder="Заметка"></textarea>
+          <button id="quickAddBtn" class="btn btn-primary">Добавить</button>
+        </div>
         <ul id="stageList" class="stage-list"></ul>
-        <button id="addStageBtn" class="btn btn-primary">Добавить этап</button>
       </section>
     </main>
+
+    <button id="nextBtn" class="btn btn-primary next-fixed">Следующий этап</button>
 
     <script src="app.js"></script>
   </body>
