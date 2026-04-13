@@ -143,23 +143,28 @@ function initMap() {
     return;
   }
 
-  map = L.map('map').setView([55.75, 37.61], 10);
-  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
+  const data = await response.json();
+  const first = Array.isArray(data) ? data[0] : null;
+  if (!first) {
+    throw new Error(`Адрес не найден: ${query}`);
+  }
 
-  osm.on('tileerror', () => {
-    showMapFallback('Не удалось загрузить карту.');
-  });
+  const lat = Number(first.lat);
+  const lng = Number(first.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error(`Некорректные координаты от геокодера: ${query}`);
+  }
+
+  return {
+    lat,
+    lng,
+    displayName: first.display_name || query
+  };
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  initMap();
-
-  const state = loadState();
-  startCoordInput.value = state.start;
-  finishCoordInput.value = state.finish;
+async function resolvePoint(input) {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error('Заполните оба поля: старт и пункт назначения.');
 
   if (state.routePath && map) {
     activeRoutePath = state.routePath;
@@ -187,8 +192,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const response = await fetch(url);
       if (!response.ok) throw new Error('Запрос к OSRM не удался.');
 
-      const data = await response.json();
-      if (data.code !== 'Ok') throw new Error('OSRM вернул ошибку маршрута.');
+function formatDistance(distanceMeters) {
+  return `${(distanceMeters / 1000).toFixed(1)} км`;
+}
 
       const route = data?.routes?.[0];
       const coordinates = route?.geometry?.coordinates;
