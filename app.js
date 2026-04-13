@@ -5,6 +5,8 @@ const defaultRoute = {
   routeName: 'Демо-маршрут: до озера',
   currentIndex: 0,
   manualAnchor: '',
+  calcPoint: null,
+  gpsInitialized: false,
   stages: [
     { title: 'Выезд из города', note: 'Проверить документы и уровень топлива.' },
     { title: 'Поворот на трассу М-5', note: 'После АЗС держаться правее.' },
@@ -15,6 +17,9 @@ const defaultRoute = {
 };
 
 let state = loadState();
+let map;
+let gpsMarker;
+let calcMarker;
 
 const routeNameInput = document.getElementById('routeName');
 const currentStageCard = document.getElementById('currentStageCard');
@@ -33,6 +38,7 @@ const manualLocationInput = document.getElementById('manualLocation');
 const saveLocationBtn = document.getElementById('saveLocationBtn');
 const manualAnchorBlock = document.getElementById('manualAnchorBlock');
 const progressText = document.getElementById('progressText');
+const mapFallback = document.getElementById('mapFallback');
 
 // Рендерим интерфейс после любого изменения state.
 function render() {
@@ -107,7 +113,9 @@ function loadState() {
       routeName: parsed.routeName || defaultRoute.routeName,
       currentIndex: Number.isInteger(parsed.currentIndex) ? parsed.currentIndex : 0,
       manualAnchor: parsed.manualAnchor || '',
-      stages: parsed.stages.map((s) => ({ title: s.title || '', note: s.note || '' }))
+      stages: parsed.stages.map((s) => ({ title: s.title || '', note: s.note || '' })),
+      calcPoint: parsed.calcPoint || null,
+      gpsInitialized: Boolean(parsed.gpsInitialized)
     };
   } catch {
     return structuredClone(defaultRoute);
@@ -120,6 +128,67 @@ function clampCurrentIndex() {
     return;
   }
   state.currentIndex = Math.max(0, Math.min(state.currentIndex, state.stages.length - 1));
+}
+
+// Инициализация карты (Leaflet) и GPS слежения.
+function initMap() {
+  if (typeof L === 'undefined') {
+    showMapFallback('Leaflet не загрузился. Карта недоступна.');
+    return;
+  }
+
+  map = L.map('map', { zoomControl: true }).setView([55.75, 37.61], 10);
+
+  const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  osmLayer.on('tileerror', () => {
+    showMapFallback('Не удалось загрузить тайлы карты. Проверьте интернет-соединение.');
+  });
+
+  const gpsIcon = L.divIcon({ className: 'gps-dot', iconSize: [16, 16] });
+  const calcIcon = L.divIcon({ className: 'calc-dot', iconSize: [16, 16] });
+
+  gpsMarker = L.marker([55.751244, 37.618423], { icon: gpsIcon }).addTo(map);
+  gpsMarker.bindTooltip('GPS позиция');
+
+  const startCalc = state.calcPoint || { lat: 55.751244, lng: 37.618423 };
+  calcMarker = L.marker([startCalc.lat, startCalc.lng], { icon: calcIcon }).addTo(map);
+  calcMarker.bindTooltip('Расчетная точка (тап по карте для переноса)');
+
+  // Тап по карте сдвигает расчетную точку.
+  map.on('click', (event) => {
+    const { lat, lng } = event.latlng;
+    calcMarker.setLatLng([lat, lng]);
+    state.calcPoint = { lat, lng };
+    saveState();
+  });
+
+  if (!navigator.geolocation) return;
+
+  navigator.geolocation.watchPosition(
+    (position) => {
+      const { latitude, longitude } = position.coords;
+      gpsMarker.setLatLng([latitude, longitude]);
+
+      if (!state.gpsInitialized) {
+        map.setView([latitude, longitude], 15);
+        state.gpsInitialized = true;
+        saveState();
+      }
+    },
+    () => {
+      // Если геолокация недоступна, продолжаем в ручном режиме.
+    },
+    { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
+  );
+}
+
+function showMapFallback(message) {
+  mapFallback.textContent = message;
+  mapFallback.classList.remove('hidden');
 }
 
 function escapeHtml(value) {
@@ -209,6 +278,11 @@ loadBtn.addEventListener('click', () => {
   state = loadState();
   clampCurrentIndex();
   render();
+
+  if (calcMarker && state.calcPoint) {
+    calcMarker.setLatLng([state.calcPoint.lat, state.calcPoint.lng]);
+  }
+
   alert('Маршрут загружен из localStorage.');
 });
 
@@ -216,7 +290,20 @@ resetBtn.addEventListener('click', () => {
   state = structuredClone(defaultRoute);
   saveState();
   render();
+
+  if (calcMarker) {
+    calcMarker.setLatLng([55.751244, 37.618423]);
+    map.setView([55.751244, 37.618423], 13);
+  }
 });
 
-clampCurrentIndex();
-render();
+document.addEventListener('DOMContentLoaded', () => {
+  clampCurrentIndex();
+  render();
+
+  try {
+    initMap();
+  } catch {
+    showMapFallback('Ошибка инициализации карты. Попробуйте перезагрузить страницу.');
+  }
+});
