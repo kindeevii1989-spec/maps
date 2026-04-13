@@ -1,4 +1,124 @@
-// Простой формат данных маршрута, сохраняется в localStorage.
+const STORAGE_KEY = 'route_navigator_data_v1';
+
+let map;
+let routeLine;
+
+const startCoordInput = document.getElementById('startCoord');
+const finishCoordInput = document.getElementById('finishCoord');
+const buildRouteBtn = document.getElementById('buildRouteBtn');
+const routeStatus = document.getElementById('routeStatus');
+const mapFallback = document.getElementById('mapFallback');
+
+function saveState(state) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function loadState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return { start: '', finish: '', routePath: null };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      start: parsed.start || '',
+      finish: parsed.finish || '',
+      routePath: Array.isArray(parsed.routePath) ? parsed.routePath : null
+    };
+  } catch {
+    return { start: '', finish: '', routePath: null };
+  }
+}
+
+function setStatus(text, type) {
+  routeStatus.textContent = text;
+  routeStatus.classList.remove('ok', 'error');
+  if (type) routeStatus.classList.add(type);
+}
+
+function showMapFallback(text) {
+  mapFallback.textContent = text;
+  mapFallback.classList.remove('hidden');
+}
+
+function parseLatLng(value) {
+  const parts = value.split(',').map((item) => item.trim());
+  if (parts.length !== 2) throw new Error('Неверный формат. Используйте lat,lng');
+
+  const lat = Number(parts[0]);
+  const lng = Number(parts[1]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('Координаты должны быть числами.');
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) throw new Error('Координаты вне диапазона.');
+
+  return { lat, lng };
+}
+
+function drawRoute(path) {
+  if (routeLine) map.removeLayer(routeLine);
+  routeLine = L.polyline(path, { color: '#2563eb', weight: 5 }).addTo(map);
+  map.fitBounds(routeLine.getBounds(), { padding: [20, 20] });
+}
+
+function initMap() {
+  if (typeof L === 'undefined') {
+    showMapFallback('Leaflet не загрузился.');
+    return;
+  }
+
+  map = L.map('map').setView([55.75, 37.61], 10);
+  const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  osm.on('tileerror', () => {
+    showMapFallback('Не удалось загрузить карту.');
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initMap();
+
+  const state = loadState();
+  startCoordInput.value = state.start;
+  finishCoordInput.value = state.finish;
+
+  if (state.routePath && map) {
+    drawRoute(state.routePath);
+    setStatus('Маршрут построен', 'ok');
+  }
+
+  buildRouteBtn.addEventListener('click', async () => {
+    try {
+      const start = parseLatLng(startCoordInput.value);
+      const finish = parseLatLng(finishCoordInput.value);
+
+      const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${finish.lng},${finish.lat}?overview=full&steps=true&geometries=geojson`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Запрос к OSRM не удался.');
+
+      const data = await response.json();
+      if (data.code !== 'Ok') throw new Error('OSRM вернул ошибку маршрута.');
+
+      const coordinates = data?.routes?.[0]?.geometry?.coordinates;
+      if (!Array.isArray(coordinates) || coordinates.length === 0) {
+        throw new Error('Маршрут не найден.');
+      }
+
+      const latLngPath = coordinates.map(([lng, lat]) => [lat, lng]);
+      drawRoute(latLngPath);
+
+      saveState({
+        start: startCoordInput.value.trim(),
+        finish: finishCoordInput.value.trim(),
+        routePath: latLngPath
+      });
+
+      setStatus('Маршрут построен', 'ok');
+    } catch (error) {
+      setStatus('Ошибка маршрута', 'error');
+      alert(error.message || 'Ошибка маршрута');
+    }
+  });
+});// Простой формат данных маршрута, сохраняется в localStorage.
 const STORAGE_KEY = 'route_navigator_data_v1';
 
 const defaultRoute = {
