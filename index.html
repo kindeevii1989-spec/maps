@@ -1,9 +1,6 @@
 <!doctype html>
 <html lang="ru">
   <head>
-    <meta charset="UTF-8" /><!doctype html>
-<html lang="ru">
-  <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Штурман маршрута</title>
@@ -21,88 +18,48 @@
       Не удалось загрузить карту.
     </div>
 
-    <main class="screen">
-      <section class="panel">
-        <h1>Построение маршрута</h1>
-
-        <label for="startCoord">Старт</label>
-        <input id="startCoord" class="input" type="text" placeholder="lat,lng" />
-
-        <label for="finishCoord">Финиш</label>
-        <input id="finishCoord" class="input" type="text" placeholder="lat,lng" />
-
-        <button id="buildRouteBtn" class="btn">Построить маршрут</button>
-        <div id="routeStatus" class="status">Введите координаты старта и финиша.</div>
-      </section>
-    </main>
-
-    <script
-      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-      crossorigin=""
-    ></script>
-    <script src="app.js"></script>
-  </body>
-</html>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Штурман маршрута</title>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-      crossorigin=""
-    />
-    <link rel="stylesheet" href="style.css" />
-  </head>
-  <body>
-    <div id="map"></div>
-    <div id="mapFallback" class="map-fallback hidden" role="status" aria-live="polite">
-      Не удалось загрузить карту. Проверьте интернет-соединение или перезагрузите страницу.
+    <div id="navTopPanel" class="nav-top hidden">
+      <strong id="nextPointText">Следующая точка через —</strong>
     </div>
 
-    <main class="app">
-      <header class="card">
-        <label for="routeName" class="label">Название маршрута</label>
-        <input id="routeName" class="input" type="text" placeholder="Например: Поездка до дачи" />
-      </header>
+    <div id="navBottomPanel" class="nav-bottom hidden">
+      <div>Осталось: <strong id="remainingDistanceText">—</strong></div>
+      <div>Время: <strong id="remainingTimeText">—</strong></div>
+      <button id="finishRouteBtn" class="btn danger-btn">Завершить маршрут</button>
+    </div>
 
-      <section class="card">
-        <h2 class="section-title">Текущий этап</h2>
-        <div id="currentStageCard" class="current-stage"></div>
-      </section>
+    <main class="screen">
+      <section class="panel">
+        <h1>Навигатор</h1>
 
-      <section class="card">
-        <h2 class="section-title">Управление</h2>
-        <div id="progressText" class="progress-text"></div>
-        <div class="button-grid">
-          <button id="backBtn" class="btn">Назад</button>
-          <button id="lostBtn" class="btn btn-danger">Потерялись</button>
-          <button id="saveBtn" class="btn">Сохранить маршрут</button>
-          <button id="loadBtn" class="btn">Загрузить маршрут</button>
-          <button id="resetBtn" class="btn btn-danger">Сбросить</button>
+        <div id="routeSummary" class="route-summary hidden"></div>
+
+        <div id="routeBuildBlock">
+          <label for="startCoord">Пункт отправки</label>
+          <input
+            id="startCoord"
+            class="input"
+            type="text"
+            placeholder="lat,lng или адрес"
+            autocomplete="off"
+          />
+
+          <label for="finishCoord">Пункт назначения</label>
+          <input
+            id="finishCoord"
+            class="input"
+            type="text"
+            placeholder="lat,lng или адрес"
+            autocomplete="off"
+          />
+
+          <button id="buildRouteBtn" class="btn">Построить маршрут</button>
+          <button id="startBtn" class="btn start-btn hidden">Старт</button>
+
+          <div id="routeStatus" class="status">Введите координаты или адреса старта и назначения.</div>
         </div>
-
-        <div id="lostPanel" class="lost-panel hidden">
-          <label for="manualLocation" class="label">Где мы сейчас?</label>
-          <textarea id="manualLocation" class="input" rows="3" placeholder="Опишите текущее место..." ></textarea>
-          <button id="saveLocationBtn" class="btn btn-primary">Сохранить текущую позицию</button>
-        </div>
-
-        <div id="manualAnchorBlock" class="manual-anchor hidden"></div>
-      </section>
-
-      <section class="card">
-        <h2 class="section-title">Этапы маршрута</h2>
-        <div class="quick-add">
-          <input id="quickTitle" class="input" type="text" placeholder="Название" />
-          <textarea id="quickNote" class="input" rows="2" placeholder="Заметка"></textarea>
-          <button id="quickAddBtn" class="btn btn-primary">Добавить</button>
-        </div>
-        <ul id="stageList" class="stage-list"></ul>
       </section>
     </main>
-
-    <button id="nextBtn" class="btn btn-primary next-fixed">Следующий этап</button>
 
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"

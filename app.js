@@ -1,12 +1,27 @@
-const STORAGE_KEY = 'route_navigator_data_v1';
+const STORAGE_KEY = 'route_navigator_data_v2';
 
 let map;
 let routeLine;
+let userMarker;
+let watchId = null;
+let isNavigationMode = false;
+let activeRoutePath = [];
+let routeMeta = null;
+let routeTailDistances = [];
 
 const startCoordInput = document.getElementById('startCoord');
 const finishCoordInput = document.getElementById('finishCoord');
 const buildRouteBtn = document.getElementById('buildRouteBtn');
+const startBtn = document.getElementById('startBtn');
+const finishRouteBtn = document.getElementById('finishRouteBtn');
+const routeBuildBlock = document.getElementById('routeBuildBlock');
 const routeStatus = document.getElementById('routeStatus');
+const routeSummary = document.getElementById('routeSummary');
+const navTopPanel = document.getElementById('navTopPanel');
+const nextPointText = document.getElementById('nextPointText');
+const navBottomPanel = document.getElementById('navBottomPanel');
+const remainingDistanceText = document.getElementById('remainingDistanceText');
+const remainingTimeText = document.getElementById('remainingTimeText');
 const mapFallback = document.getElementById('mapFallback');
 
 function saveState(state) {
@@ -15,16 +30,20 @@ function saveState(state) {
 
 function loadState() {
   const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return { start: '', finish: '', routePath: null };
+  if (!raw) {
+    return { start: '', finish: '', routePath: null, summary: null };
+  }
+
   try {
     const parsed = JSON.parse(raw);
     return {
       start: parsed.start || '',
       finish: parsed.finish || '',
-      routePath: Array.isArray(parsed.routePath) ? parsed.routePath : null
+      routePath: Array.isArray(parsed.routePath) ? parsed.routePath : null,
+      summary: parsed.summary || null
     };
   } catch {
-    return { start: '', finish: '', routePath: null };
+    return { start: '', finish: '', routePath: null, summary: null };
   }
 }
 
@@ -41,20 +60,230 @@ function showMapFallback(text) {
 
 function parseLatLng(value) {
   const parts = value.split(',').map((item) => item.trim());
-  if (parts.length !== 2) throw new Error('Неверный формат. Используйте lat,lng');
+  if (parts.length !== 2) return null;
 
   const lat = Number(parts[0]);
   const lng = Number(parts[1]);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) throw new Error('Координаты должны быть числами.');
-  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) throw new Error('Координаты вне диапазона.');
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
 
   return { lat, lng };
+}
+
+async function geocodeAddress(query) {
+  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`;
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error('Не удалось выполнить геокодирование адреса.');
+  }
+
+  const data = await response.json();
+  const first = Array.isArray(data) ? data[0] : null;
+  if (!first) {
+    throw new Error(`Адрес не найден: ${query}`);
+  }
+
+  const lat = Number(first.lat);
+  const lng = Number(first.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error(`Некорректные координаты от геокодера: ${query}`);
+  }
+
+  return {
+    lat,
+    lng,
+    displayName: first.display_name || query
+  };
+}
+
+async function resolvePoint(input) {
+  const trimmed = input.trim();
+  if (!trimmed) throw new Error('Заполните оба поля: старт и пункт назначения.');
+
+  const latLng = parseLatLng(trimmed);
+  if (latLng) {
+    return {
+      ...latLng,
+      displayName: trimmed
+    };
+  }
+
+  return geocodeAddress(trimmed);
+}
+
+function formatDistance(distanceMeters) {
+  return `${(distanceMeters / 1000).toFixed(1)} км`;
+}
+
+function formatDuration(durationSeconds) {
+  const totalMinutes = Math.max(0, Math.round(durationSeconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes} мин`;
+  return `${hours} ч ${minutes} мин`;
+}
+
+function formatMeters(distanceMeters) {
+  if (distanceMeters < 1000) return `${Math.round(distanceMeters)} м`;
+  return `${(distanceMeters / 1000).toFixed(1)} км`;
+}
+
+function toRad(value) {
+  return (value * Math.PI) / 180;
+}
+
+function haversineMeters(a, b) {
+  const earthRadius = 6371000;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+
+  const hav =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+  return 2 * earthRadius * Math.atan2(Math.sqrt(hav), Math.sqrt(1 - hav));
+}
+
+function buildTailDistances(path) {
+  const tail = new Array(path.length).fill(0);
+  for (let index = path.length - 2; index >= 0; index -= 1) {
+    const current = { lat: path[index][0], lng: path[index][1] };
+    const next = { lat: path[index + 1][0], lng: path[index + 1][1] };
+    tail[index] = tail[index + 1] + haversineMeters(current, next);
+  }
+  return tail;
+}
+
+function findNearestRoutePoint(userLatLng, path) {
+  let nearestIndex = 0;
+  let minDistance = Number.POSITIVE_INFINITY;
+
+  path.forEach((point, index) => {
+    const pointLatLng = { lat: point[0], lng: point[1] };
+    const distance = haversineMeters(userLatLng, pointLatLng);
+    if (distance < minDistance) {
+      minDistance = distance;
+      nearestIndex = index;
+    }
+  });
+
+  return { nearestIndex, minDistance };
 }
 
 function drawRoute(path) {
   if (routeLine) map.removeLayer(routeLine);
   routeLine = L.polyline(path, { color: '#2563eb', weight: 5 }).addTo(map);
   map.fitBounds(routeLine.getBounds(), { padding: [20, 20] });
+}
+
+function showRouteSummary(summary) {
+  routeSummary.innerHTML = `
+    <div><strong>Отправка:</strong> ${summary.startAddress}</div>
+    <div><strong>Назначение:</strong> ${summary.finishAddress}</div>
+    <div><strong>Расстояние:</strong> ${formatDistance(summary.distance)}</div>
+    <div><strong>Примерное время:</strong> ${formatDuration(summary.duration)}</div>
+  `;
+  routeSummary.classList.remove('hidden');
+}
+
+function updateNavigationPanels(userLatLng) {
+  if (!activeRoutePath.length || !routeMeta) return;
+
+  const nearest = findNearestRoutePoint(userLatLng, activeRoutePath);
+  const nextIndex = Math.min(nearest.nearestIndex + 1, activeRoutePath.length - 1);
+  const nextPoint = { lat: activeRoutePath[nextIndex][0], lng: activeRoutePath[nextIndex][1] };
+  const distanceToNextPoint = haversineMeters(userLatLng, nextPoint);
+
+  const remainingDistanceMeters = Math.max(
+    0,
+    distanceToNextPoint + (routeTailDistances[nextIndex] || 0)
+  );
+
+  const secondsPerMeter = routeMeta.distance > 0 ? routeMeta.duration / routeMeta.distance : 0;
+  const remainingDuration = remainingDistanceMeters * secondsPerMeter;
+
+  nextPointText.textContent = `Следующая точка через ${formatMeters(distanceToNextPoint)}`;
+  remainingDistanceText.textContent = formatDistance(remainingDistanceMeters);
+  remainingTimeText.textContent = formatDuration(remainingDuration);
+}
+
+function enterNavigationMode() {
+  if (!activeRoutePath.length || !routeMeta) {
+    alert('Сначала постройте маршрут.');
+    return;
+  }
+
+  if (!navigator.geolocation) {
+    alert('Геолокация не поддерживается браузером.');
+    return;
+  }
+
+  routeBuildBlock.classList.add('hidden');
+  navTopPanel.classList.remove('hidden');
+  navBottomPanel.classList.remove('hidden');
+  isNavigationMode = true;
+
+  watchId = navigator.geolocation.watchPosition(
+    (position) => {
+      const userLatLng = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude
+      };
+
+      if (!userMarker) {
+        userMarker = L.circleMarker([userLatLng.lat, userLatLng.lng], {
+          radius: 8,
+          color: '#60a5fa',
+          fillColor: '#2563eb',
+          fillOpacity: 1,
+          weight: 2
+        }).addTo(map);
+      } else {
+        userMarker.setLatLng([userLatLng.lat, userLatLng.lng]);
+      }
+
+      map.panTo([userLatLng.lat, userLatLng.lng], { animate: true, duration: 0.5 });
+      updateNavigationPanels(userLatLng);
+    },
+    (error) => {
+      setStatus('Ошибка геолокации', 'error');
+      alert(`Не удалось получить GPS позицию: ${error.message}`);
+      exitNavigationMode();
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 1000,
+      timeout: 10000
+    }
+  );
+
+  setStatus('Режим навигации запущен', 'ok');
+}
+
+function exitNavigationMode() {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+
+  if (userMarker && map) {
+    map.removeLayer(userMarker);
+    userMarker = null;
+  }
+
+  isNavigationMode = false;
+  routeBuildBlock.classList.remove('hidden');
+  navTopPanel.classList.add('hidden');
+  navBottomPanel.classList.add('hidden');
+
+  setStatus('Навигация завершена. Можно построить новый маршрут.', 'ok');
 }
 
 function initMap() {
@@ -82,14 +311,34 @@ document.addEventListener('DOMContentLoaded', () => {
   finishCoordInput.value = state.finish;
 
   if (state.routePath && map) {
+    activeRoutePath = state.routePath;
     drawRoute(state.routePath);
+    routeTailDistances = buildTailDistances(activeRoutePath);
+
+    if (state.summary) {
+      routeMeta = state.summary;
+      showRouteSummary(state.summary);
+      startBtn.classList.remove('hidden');
+    }
+
     setStatus('Маршрут построен', 'ok');
   }
 
+  startBtn.addEventListener('click', () => {
+    enterNavigationMode();
+  });
+
+  finishRouteBtn.addEventListener('click', () => {
+    exitNavigationMode();
+  });
+
   buildRouteBtn.addEventListener('click', async () => {
+    buildRouteBtn.disabled = true;
+    setStatus('Строим маршрут...', null);
+
     try {
-      const start = parseLatLng(startCoordInput.value);
-      const finish = parseLatLng(finishCoordInput.value);
+      const start = await resolvePoint(startCoordInput.value);
+      const finish = await resolvePoint(finishCoordInput.value);
 
       const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${finish.lng},${finish.lat}?overview=full&steps=true&geometries=geojson`;
       const response = await fetch(url);
@@ -98,332 +347,47 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await response.json();
       if (data.code !== 'Ok') throw new Error('OSRM вернул ошибку маршрута.');
 
-      const coordinates = data?.routes?.[0]?.geometry?.coordinates;
+      const route = data?.routes?.[0];
+      const coordinates = route?.geometry?.coordinates;
       if (!Array.isArray(coordinates) || coordinates.length === 0) {
         throw new Error('Маршрут не найден.');
       }
 
       const latLngPath = coordinates.map(([lng, lat]) => [lat, lng]);
+      activeRoutePath = latLngPath;
+      routeTailDistances = buildTailDistances(activeRoutePath);
       drawRoute(latLngPath);
+
+      const summary = {
+        startAddress: start.displayName,
+        finishAddress: finish.displayName,
+        distance: route.distance,
+        duration: route.duration
+      };
+
+      routeMeta = summary;
+      showRouteSummary(summary);
+      startBtn.classList.remove('hidden');
 
       saveState({
         start: startCoordInput.value.trim(),
         finish: finishCoordInput.value.trim(),
-        routePath: latLngPath
+        routePath: latLngPath,
+        summary
       });
 
       setStatus('Маршрут построен', 'ok');
     } catch (error) {
       setStatus('Ошибка маршрута', 'error');
       alert(error.message || 'Ошибка маршрута');
+    } finally {
+      buildRouteBtn.disabled = false;
     }
   });
-});// Простой формат данных маршрута, сохраняется в localStorage.
-const STORAGE_KEY = 'route_navigator_data_v1';
 
-const defaultRoute = {
-  routeName: 'Демо-маршрут: до озера',
-  currentIndex: 0,
-  manualAnchor: '',
-  calcPoint: null,
-  gpsInitialized: false,
-  stages: [
-    { title: 'Выезд из города', note: 'Проверить документы и уровень топлива.' },
-    { title: 'Поворот на трассу М-5', note: 'После АЗС держаться правее.' },
-    { title: 'Мост через реку', note: 'Снизить скорость, дальше плохой участок.' },
-    { title: 'Лесная развилка', note: 'Выбрать левую дорогу к базе отдыха.' },
-    { title: 'Финиш: стоянка у озера', note: 'Остановиться и отметить прибытие.' }
-  ]
-};
-
-let state = loadState();
-let map;
-let gpsMarker;
-let calcMarker;
-
-const routeNameInput = document.getElementById('routeName');
-const currentStageCard = document.getElementById('currentStageCard');
-const stageList = document.getElementById('stageList');
-const quickTitle = document.getElementById('quickTitle');
-const quickNote = document.getElementById('quickNote');
-const quickAddBtn = document.getElementById('quickAddBtn');
-const nextBtn = document.getElementById('nextBtn');
-const backBtn = document.getElementById('backBtn');
-const lostBtn = document.getElementById('lostBtn');
-const saveBtn = document.getElementById('saveBtn');
-const loadBtn = document.getElementById('loadBtn');
-const resetBtn = document.getElementById('resetBtn');
-const lostPanel = document.getElementById('lostPanel');
-const manualLocationInput = document.getElementById('manualLocation');
-const saveLocationBtn = document.getElementById('saveLocationBtn');
-const manualAnchorBlock = document.getElementById('manualAnchorBlock');
-const progressText = document.getElementById('progressText');
-const mapFallback = document.getElementById('mapFallback');
-
-// Рендерим интерфейс после любого изменения state.
-function render() {
-  routeNameInput.value = state.routeName;
-
-  if (state.stages.length === 0) {
-    currentStageCard.innerHTML = '<h3>Нет этапов</h3><p>Добавьте первый этап маршрута.</p>';
-    progressText.textContent = 'Этапов пока нет';
-  } else {
-    const current = state.stages[state.currentIndex];
-    const isLastStage = state.currentIndex === state.stages.length - 1;
-    currentStageCard.innerHTML = `
-      <h3>Этап ${state.currentIndex + 1}: ${escapeHtml(current.title || 'Без названия')}</h3>
-      <p><strong>Заметка:</strong> ${escapeHtml(current.note || '—')}</p>
-      ${isLastStage ? '<p><strong>Вы прибыли</strong></p>' : ''}
-    `;
-    progressText.textContent = `Этап ${state.currentIndex + 1} из ${state.stages.length}`;
-  }
-
-  renderStageList();
-  renderManualAnchor();
-
-  backBtn.disabled = state.currentIndex <= 0;
-  const isDisabledNext = state.currentIndex >= state.stages.length - 1 || state.stages.length === 0;
-  nextBtn.disabled = isDisabledNext;
-  nextBtn.textContent = isDisabledNext ? 'Вы прибыли' : 'Следующий этап';
-}
-
-function renderStageList() {
-  stageList.innerHTML = '';
-
-  state.stages.forEach((stage, index) => {
-    const li = document.createElement('li');
-    li.className = `stage-item ${index === state.currentIndex ? 'current' : ''}`;
-
-    li.innerHTML = `
-      <div class="row-top">
-        <span class="stage-number">Этап ${index + 1}</span>
-        <button class="btn btn-danger" data-action="delete" data-index="${index}">Удалить</button>
-      </div>
-      <div class="row">
-        <input class="input" data-field="title" data-index="${index}" type="text" value="${escapeAttribute(stage.title)}" placeholder="Название этапа" />
-        <textarea class="input" data-field="note" data-index="${index}" rows="2" placeholder="Заметка">${escapeHtml(stage.note)}</textarea>
-      </div>
-    `;
-
-    stageList.appendChild(li);
+  window.addEventListener('beforeunload', () => {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+    }
   });
-}
-
-function renderManualAnchor() {
-  if (state.manualAnchor.trim()) {
-    manualAnchorBlock.classList.remove('hidden');
-    manualAnchorBlock.textContent = `Текущая ручная привязка: ${state.manualAnchor}`;
-  } else {
-    manualAnchorBlock.classList.add('hidden');
-    manualAnchorBlock.textContent = '';
-  }
-}
-
-function saveState() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-}
-
-function loadState() {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return structuredClone(defaultRoute);
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed.stages)) throw new Error('Invalid data');
-    return {
-      routeName: parsed.routeName || defaultRoute.routeName,
-      currentIndex: Number.isInteger(parsed.currentIndex) ? parsed.currentIndex : 0,
-      manualAnchor: parsed.manualAnchor || '',
-      stages: parsed.stages.map((s) => ({ title: s.title || '', note: s.note || '' })),
-      calcPoint: parsed.calcPoint || null,
-      gpsInitialized: Boolean(parsed.gpsInitialized)
-    };
-  } catch {
-    return structuredClone(defaultRoute);
-  }
-}
-
-function clampCurrentIndex() {
-  if (state.stages.length === 0) {
-    state.currentIndex = 0;
-    return;
-  }
-  state.currentIndex = Math.max(0, Math.min(state.currentIndex, state.stages.length - 1));
-}
-
-// Инициализация карты (Leaflet) и GPS слежения.
-function initMap() {
-  if (typeof L === 'undefined') {
-    showMapFallback('Leaflet не загрузился. Карта недоступна.');
-    return;
-  }
-
-  map = L.map('map', { zoomControl: true }).setView([55.75, 37.61], 10);
-
-  const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors'
-  }).addTo(map);
-
-  osmLayer.on('tileerror', () => {
-    showMapFallback('Не удалось загрузить тайлы карты. Проверьте интернет-соединение.');
-  });
-
-  const gpsIcon = L.divIcon({ className: 'gps-dot', iconSize: [16, 16] });
-  const calcIcon = L.divIcon({ className: 'calc-dot', iconSize: [16, 16] });
-
-  gpsMarker = L.marker([55.751244, 37.618423], { icon: gpsIcon }).addTo(map);
-  gpsMarker.bindTooltip('GPS позиция');
-
-  const startCalc = state.calcPoint || { lat: 55.751244, lng: 37.618423 };
-  calcMarker = L.marker([startCalc.lat, startCalc.lng], { icon: calcIcon }).addTo(map);
-  calcMarker.bindTooltip('Расчетная точка (тап по карте для переноса)');
-
-  // Тап по карте сдвигает расчетную точку.
-  map.on('click', (event) => {
-    const { lat, lng } = event.latlng;
-    calcMarker.setLatLng([lat, lng]);
-    state.calcPoint = { lat, lng };
-    saveState();
-  });
-
-  if (!navigator.geolocation) return;
-
-  navigator.geolocation.watchPosition(
-    (position) => {
-      const { latitude, longitude } = position.coords;
-      gpsMarker.setLatLng([latitude, longitude]);
-
-      if (!state.gpsInitialized) {
-        map.setView([latitude, longitude], 15);
-        state.gpsInitialized = true;
-        saveState();
-      }
-    },
-    () => {
-      // Если геолокация недоступна, продолжаем в ручном режиме.
-    },
-    { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
-  );
-}
-
-function showMapFallback(message) {
-  mapFallback.textContent = message;
-  mapFallback.classList.remove('hidden');
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function escapeAttribute(value) {
-  return escapeHtml(value).replace(/"/g, '&quot;');
-}
-
-routeNameInput.addEventListener('input', (e) => {
-  state.routeName = e.target.value;
-  saveState();
-});
-
-nextBtn.addEventListener('click', () => {
-  if (state.currentIndex < state.stages.length - 1) {
-    state.currentIndex += 1;
-    saveState();
-    render();
-  }
-});
-
-backBtn.addEventListener('click', () => {
-  if (state.currentIndex > 0) {
-    state.currentIndex -= 1;
-    saveState();
-    render();
-  }
-});
-
-lostBtn.addEventListener('click', () => {
-  lostPanel.classList.toggle('hidden');
-  manualLocationInput.value = state.manualAnchor;
-});
-
-saveLocationBtn.addEventListener('click', () => {
-  state.manualAnchor = manualLocationInput.value.trim();
-  saveState();
-  renderManualAnchor();
-  lostPanel.classList.add('hidden');
-});
-
-quickAddBtn.addEventListener('click', () => {
-  const title = quickTitle.value.trim();
-  const note = quickNote.value.trim();
-
-  state.stages.push({ title: title || 'Новый этап', note });
-  quickTitle.value = '';
-  quickNote.value = '';
-  clampCurrentIndex();
-  saveState();
-  render();
-});
-
-stageList.addEventListener('input', (e) => {
-  const index = Number(e.target.dataset.index);
-  const field = e.target.dataset.field;
-  if (!Number.isInteger(index) || !field) return;
-
-  state.stages[index][field] = e.target.value;
-  saveState();
-  if (index === state.currentIndex) render();
-});
-
-stageList.addEventListener('click', (e) => {
-  const btn = e.target.closest('button[data-action="delete"]');
-  if (!btn) return;
-  const index = Number(btn.dataset.index);
-  if (!Number.isInteger(index)) return;
-
-  state.stages.splice(index, 1);
-  clampCurrentIndex();
-  saveState();
-  render();
-});
-
-saveBtn.addEventListener('click', () => {
-  saveState();
-  alert('Маршрут сохранён в localStorage.');
-});
-
-loadBtn.addEventListener('click', () => {
-  state = loadState();
-  clampCurrentIndex();
-  render();
-
-  if (calcMarker && state.calcPoint) {
-    calcMarker.setLatLng([state.calcPoint.lat, state.calcPoint.lng]);
-  }
-
-  alert('Маршрут загружен из localStorage.');
-});
-
-resetBtn.addEventListener('click', () => {
-  state = structuredClone(defaultRoute);
-  saveState();
-  render();
-
-  if (calcMarker) {
-    calcMarker.setLatLng([55.751244, 37.618423]);
-    map.setView([55.751244, 37.618423], 13);
-  }
-});
-
-document.addEventListener('DOMContentLoaded', () => {
-  clampCurrentIndex();
-  render();
-
-  try {
-    initMap();
-  } catch {
-    showMapFallback('Ошибка инициализации карты. Попробуйте перезагрузить страницу.');
-  }
 });
