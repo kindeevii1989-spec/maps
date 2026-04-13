@@ -2,6 +2,12 @@ const STORAGE_KEY = 'route_navigator_data_v2';
 
 let map;
 let routeLine;
+let userMarker;
+let watchId = null;
+let isNavigationMode = false;
+let activeRoutePath = [];
+let routeMeta = null;
+let routeTailDistances = [];
 
 const startCoordInput = document.getElementById('startCoord');
 const finishCoordInput = document.getElementById('finishCoord');
@@ -156,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
   finishCoordInput.value = state.finish;
 
   if (state.routePath && map) {
+    activeRoutePath = state.routePath;
     drawRoute(state.routePath);
     if (state.summary) {
       showRouteSummary(state.summary);
@@ -190,6 +197,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const latLngPath = coordinates.map(([lng, lat]) => [lat, lng]);
+      activeRoutePath = latLngPath;
+      routeTailDistances = buildTailDistances(activeRoutePath);
       drawRoute(latLngPath);
 
       const summary = {

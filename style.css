@@ -112,7 +112,8 @@ label {
   color: #fff;
 }
 
-.map-fallback {
+.nav-top,
+.nav-bottom {
   position: fixed;
   top: 12px;
   left: 12px;
