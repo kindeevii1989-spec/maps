@@ -18,46 +18,34 @@
       Не удалось загрузить карту.
     </div>
 
-    <div id="navTopPanel" class="nav-top hidden">
-      <strong id="nextPointText">Следующая точка через —</strong>
-    </div>
-
-    <div id="navBottomPanel" class="nav-bottom hidden">
-      <div>Осталось: <strong id="remainingDistanceText">—</strong></div>
-      <div>Время: <strong id="remainingTimeText">—</strong></div>
-      <button id="finishRouteBtn" class="btn danger-btn">Завершить маршрут</button>
-    </div>
-
     <main class="screen">
       <section class="panel">
         <h1>Навигатор</h1>
 
         <div id="routeSummary" class="route-summary hidden"></div>
 
-        <div id="routeBuildBlock">
-          <label for="startCoord">Пункт отправки</label>
-          <input
-            id="startCoord"
-            class="input"
-            type="text"
-            placeholder="lat,lng или адрес"
-            autocomplete="off"
-          />
+        <label for="startCoord">Пункт отправки</label>
+        <input
+          id="startCoord"
+          class="input"
+          type="text"
+          placeholder="lat,lng или адрес"
+          autocomplete="off"
+        />
 
-          <label for="finishCoord">Пункт назначения</label>
-          <input
-            id="finishCoord"
-            class="input"
-            type="text"
-            placeholder="lat,lng или адрес"
-            autocomplete="off"
-          />
+        <label for="finishCoord">Пункт назначения</label>
+        <input
+          id="finishCoord"
+          class="input"
+          type="text"
+          placeholder="lat,lng или адрес"
+          autocomplete="off"
+        />
 
-          <button id="buildRouteBtn" class="btn">Построить маршрут</button>
-          <button id="startBtn" class="btn start-btn hidden">Старт</button>
+        <button id="buildRouteBtn" class="btn">Построить маршрут</button>
+        <button id="startBtn" class="btn start-btn hidden">Старт</button>
 
-          <div id="routeStatus" class="status">Введите координаты или адреса старта и назначения.</div>
-        </div>
+        <div id="routeStatus" class="status">Введите координаты или адреса старта и назначения.</div>
       </section>
     </main>
 
